@@ -1,0 +1,6 @@
+/build/
+.venv/
+__pycache__/
+.DS_Store
+/CONTE.md
+/ref_sheet.jpg

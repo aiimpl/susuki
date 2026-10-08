@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Susuki by the river</title>
+<meta name="description" content="A field of Japanese silver grass by a river, at dusk and under the Moon. Drag to part the grass, touch the water. three.js, nothing pre-rendered.">
+<meta property="og:title" content="Susuki by the river">
+<meta property="og:description" content="Japanese silver grass by a river, at dusk and under the Moon. Drag to part the grass, touch the water.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%224%22 fill=%22%23241a10%22/%3E%3Cpath d=%22M8 15C8 9 9 6 12 3M8 15C7 10 5 7 3 5%22 stroke=%22%23f4e3c4%22 stroke-width=%221.4%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0806; overflow: hidden; touch-action: none; overscroll-behavior: none; }
+  body { color: #f6efe4; font: 500 13px/1.4 Inter, 'Noto Sans JP', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  #c:active { cursor: grabbing; }
+  #hand { position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; pointer-events: none; opacity: 0;
+    border: 1.6px solid rgba(255,255,255,.92); box-shadow: 0 0 10px rgba(255,255,255,.35), inset 0 0 8px rgba(255,255,255,.25); transition: none; }
+  #hand::after { content: ''; position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%; background: rgba(255,255,255,.95); }
+  .ui { position: absolute; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 9px; pointer-events: none; }
+  .seg { pointer-events: auto; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(12,10,8,.38); border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .seg button { font: inherit; color: rgba(246,239,228,.72); background: none; border: 0; border-radius: 999px; padding: 7px 15px; cursor: pointer; }
+  .seg button.on { color: #1b140c; background: rgba(246,239,228,.92); }
+  #hint { color: rgba(246,239,228,.62); font-size: 12px; text-shadow: 0 1px 6px rgba(0,0,0,.5); }
+  .src { position: absolute; right: 12px; top: max(10px, env(safe-area-inset-top)); color: rgba(246,239,228,.5); font-size: 11.5px; text-decoration: none; }
+  body.film .ui, body.film .src { display: none; }
+  body.film #c { cursor: none; }
+</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hand"></div>
+<div class="ui">
+  <div class="seg"><button id="b-dusk">Dusk</button><button id="b-moon">Moonlight</button></div>
+  <div id="hint"></div>
+</div>
+<a class="src" href="https://github.com/aiimpl/susuki" target="_blank" rel="noopener">source</a>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
