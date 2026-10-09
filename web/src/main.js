@@ -1,17 +1,18 @@
 // Susuki by the river: the page (drag to part the grass and touch the water) and the film (?film / ?render).
 import * as THREE from 'three';
-import { EffectComposer } from '../vendor/three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from '../vendor/three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from '../vendor/three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from '../vendor/three/examples/jsm/postprocessing/ShaderPass.js';
+import { Post } from './post.js';
+import { setLight } from './light.js';
+import { makeDragonflies } from './critters.js';
 import { makeClumps, terrainH, rng } from './world.js';
 import { makeSusuki } from './susuki.js';
 import { makeGround, makeRidges, makeSky } from './land.js';
-import { Touch, makeWater, makeSeeds } from './water.js';
-import { FILM_LEN, filmAt } from './film.js';
+import { Touch, makeWater, makeSeeds, makeFloaters } from './water.js';
+import * as filmJa from './film.js';
+import * as filmEn from './film_en.js';
 
 const q = new URLSearchParams(location.search);
 const RENDER = q.has('render'), FILM = RENDER || q.has('film');
+const { FILM_LEN, filmAt } = (q.get('v') || q.get('film')) === 'en' ? filmEn : filmJa;
 const RS = Number(q.get('rs')) || Math.min(devicePixelRatio, FILM ? 2 : 1.25);
 const QUALITY = FILM ? 1 : Number(q.get('q')) || (matchMedia('(pointer: coarse)').matches ? 0.6 : 0.85);
 
@@ -30,15 +31,6 @@ const U = {
   uTrample: { value: null }, uTrampleBox: { value: new THREE.Vector4() },
 };
 
-// light keys: golden hour, the afterglow, moonlight
-const SUN = V3(-0.075, 0.062, -1).normalize();
-const MOON = V3(0.075, 0.2, -1).normalize();
-const KEYS = [
-  { sun: SUN, sunCol: [5.6, 3.0, 1.25], skyTop: [0.11, 0.12, 0.22], skyHor: [1.25, 0.5, 0.16], glow: [1.9, 0.78, 0.22], ambTop: [0.11, 0.11, 0.17], ambBot: [0.07, 0.045, 0.025], fog: 0.0026, exp: 0.62, spec: 1, stars: 0, moon: 0, disc: 1, cloud: [1, 1] },
-  { sun: V3(-0.075, -0.03, -1).normalize(), sunCol: [0.9, 0.42, 0.3], skyTop: [0.07, 0.09, 0.22], skyHor: [0.75, 0.3, 0.26], glow: [1.0, 0.38, 0.22], ambTop: [0.12, 0.12, 0.2], ambBot: [0.06, 0.04, 0.04], fog: 0.005, exp: 1.0, spec: 0.6, stars: 0.2, moon: 0.4, disc: 0, cloud: [1, 0.8] },
-  { sun: MOON, sunCol: [0.42, 0.5, 0.66], skyTop: [0.003, 0.006, 0.016], skyHor: [0.012, 0.02, 0.036], glow: [0.07, 0.09, 0.13], ambTop: [0.035, 0.05, 0.085], ambBot: [0.008, 0.01, 0.014], fog: 0.0035, exp: 1.25, spec: 0.3, stars: 1, moon: 1, disc: 0, cloud: [0.7, 0.55] },
-];
-
 const scene = new THREE.Scene();
 const clumps = makeClumps({ eye: EYE, keep: [[EYE[0] + 0.3, 2.2, 1.3], [EYE[0] + 0.3, 0.9, 1.3], [EYE[0] + 0.4, -0.4, 1.3], [EYE[0] + 0.5, -1.8, 1.3]], density: FILM ? 1 : QUALITY + 0.15 });
 const susuki = makeSusuki(clumps, U, { quality: QUALITY, eye: EYE });
@@ -48,30 +40,16 @@ const ground = makeGround(U, EYE);
 const ridges = makeRidges(U, EYE);
 const water = makeWater(U, touch, EYE);
 const seeds = makeSeeds(U, EYE, FILM ? 1600 : 900);
-scene.add(sky, ridges, ground, susuki, water, seeds);
+const floaters = makeFloaters(U);
+const flies = makeDragonflies(U, [[-2.45, 1.95, -0.6, 0.35], [-1.9, 1.75, -1.4, 0.4], [-2.9, 2.05, -1.9, 0.4], [-1.2, 1.25, -2.2, 0.45], [-2.2, 2.25, -3.0, 0.5], [-0.6, 1.0, -3.4, 0.5], [-3.3, 1.8, -2.6, 0.4]]);
+scene.add(sky, ridges, ground, susuki, water, seeds, floaters, flies);
 console.log('susuki', JSON.stringify(susuki.userData.counts), 'clumps', clumps.length);
 
 const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 6000);
 
-// the reflection: the same camera, the scene mirrored in y = 0
-let reflRT = null, composer = null, bloom = null, finalPass = null;
-const FINAL = {
-  uniforms: { tDiffuse: { value: null }, uExposure: { value: 1 }, uGrain: { value: 0 }, uAspect: { value: 1 } },
-  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uExposure; uniform float uGrain; uniform float uAspect; varying vec2 vUv;
-    vec3 aces(vec3 x){ return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0., 1.); }
-    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uGrain) * 43758.5453); }
-    void main(){
-      vec3 c = texture2D(tDiffuse, vUv).rgb * uExposure;
-      vec2 v = (vUv - 0.5) * vec2(uAspect, 1.);
-      c *= 1. - 0.35 * smoothstep(0.25, 0.85, length(v));
-      c = aces(c);
-      c = pow(c, vec3(1. / 2.2));
-      c += (h(vUv * 1000.) - 0.5) * 0.018;
-      gl_FragColor = vec4(c, 1.);
-    }`,
-};
+// the reflection: the same camera, the scene mirrored in y = 0, drawn first into its own target
+let reflRT = null;
+const post = new Post(renderer);
 
 let W = 0, H = 0;
 function resize() {
@@ -84,60 +62,32 @@ function resize() {
   camera.fov = w / h < 1 ? 52 : 40;
   camera.updateProjectionMatrix();
   const pw = Math.round(w * RS), ph = Math.round(h * RS);
-  const o = { type: THREE.HalfFloatType, samples: 4 };
   reflRT?.dispose();
-  reflRT = new THREE.WebGLRenderTarget(Math.round(pw * 0.6), Math.round(ph * 0.6), o);
-  composer?.dispose?.();
-  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(pw, ph, o));
-  composer.setPixelRatio(1);
-  composer.setSize(pw, ph);
-  composer.addPass(new RenderPass(scene, camera));
-  bloom = new UnrealBloomPass(new THREE.Vector2(pw, ph), 0.32, 0.35, 3.5);
-  composer.addPass(bloom);
-  finalPass = new ShaderPass(FINAL);
-  composer.addPass(finalPass);
+  reflRT = new THREE.WebGLRenderTarget(Math.round(pw * 0.6), Math.round(ph * 0.6), { type: THREE.HalfFloatType, samples: 4 });
+  post.setSize(pw, ph);
   water.material.uniforms.uRes.value.set(pw, ph);
 }
 
-const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
-function setLight(n) {
-  // n: 0 golden, 1 afterglow, 2 moonlight
-  const i = Math.min(1, Math.floor(n)), t = n - i;
-  const a = KEYS[i], b = KEYS[i + 1];
-  const s = t * t * (3 - 2 * t);
-  U.uSunDir.value.copy(a.sun).lerp(b.sun, s).normalize();
-  U.uSunCol.value.fromArray(lerp3(a.sunCol, b.sunCol, s));
-  for (const [k, key] of [['uSkyTop', 'skyTop'], ['uSkyHor', 'skyHor'], ['uGlowCol', 'glow'], ['uAmbTop', 'ambTop'], ['uAmbBot', 'ambBot']]) U[k].value.fromArray(lerp3(a[key], b[key], s));
-  U.uFogDen.value = a.fog + (b.fog - a.fog) * s;
-  U.uNight.value = n / 2;
-  U.uSpec.value = a.spec + (b.spec - a.spec) * s;
-  const su = sky.material.uniforms;
-  su.uStars.value = a.stars + (b.stars - a.stars) * s;
-  su.uMoonLit.value = a.moon + (b.moon - a.moon) * s;
-  su.uSunDisc.value = a.disc + (b.disc - a.disc) * s;
-  su.uMoonDir.value.copy(MOON);
-  su.uCloud.value.set(...lerp3(a.cloud, b.cloud, s), 1);
-  // exposure in log space
-  return Math.exp(Math.log(a.exp) + (Math.log(b.exp) - Math.log(a.exp)) * s);
-}
-
-function draw(exposure) {
+const lightPos = new THREE.Vector3();
+function draw(lit, lens = {}) {
   resize();
+  flies.material.uniforms.uShow.value = 1 - Math.min(1, Math.max(0, (U.uNight.value * 2 - 0.5) / 0.6));
   camera.updateMatrixWorld();
   const cp = camera.position;
   // reflection pass
   U.uMirror.value = -1; U.uCamPos.value.set(cp.x, -cp.y, cp.z);
-  water.visible = false; seeds.visible = false;
+  water.visible = false; seeds.visible = false; floaters.visible = false; flies.visible = false;
   renderer.setRenderTarget(reflRT); renderer.clear(); renderer.render(scene, camera);
-  renderer.setRenderTarget(null);
-  water.visible = true; seeds.visible = true;
+  water.visible = true; seeds.visible = true; floaters.visible = true; flies.visible = flies.material.uniforms.uShow.value > 0;
   U.uMirror.value = 1; U.uCamPos.value.copy(cp);
   water.material.uniforms.uRefl.value = reflRT.texture;
-  finalPass.uniforms.uExposure.value = exposure;
-  finalPass.uniforms.uGrain.value = (U.uTime.value * 7.13) % 1;
-  finalPass.uniforms.uAspect.value = W / H;
-  seeds.material.uniforms.uPx.value = H * RS;
-  composer.render();
+  seeds.material.uniforms.uPx.value = floaters.material.uniforms.uPx.value = H * RS;
+  renderer.setRenderTarget(post.target); renderer.clear(); renderer.render(scene, camera);
+  // where the light is on the screen, for the shafts
+  lightPos.copy(U.uSunDir.value).multiplyScalar(1000).add(cp).project(camera);
+  const onScreen = lightPos.z < 1 && Math.abs(lightPos.x) < 1.6 && Math.abs(lightPos.y) < 1.6;
+  Object.assign(post.opts, { exposure: lit.exposure, rays: lit.rays, grain: (U.uTime.value * 7.13) % 1, focus: lens.focus ?? 9, aperture: lens.aperture ?? 8 });
+  post.render(camera, onScreen ? new THREE.Vector2(lightPos.x * 0.5 + 0.5, lightPos.y * 0.5 + 0.5) : null);
 }
 
 // --- the hand: a ring on the screen where it touches
@@ -166,8 +116,7 @@ function filmFrame(t) {
   U.uFront.value = f.front;
   camera.position.set(...f.cam);
   camera.lookAt(...f.look);
-  const exp = setLight(f.light);
-  draw(exp);
+  draw(setLight(U, sky, f.light), f.lens);
   showHand(f.hand);
   return f;
 }
@@ -246,7 +195,7 @@ function startPage() {
     camera.position.set(EYE[0] + Math.sin(t * 0.07) * 0.25, terrainH(EYE[0], EYE[1]) + 1.32 + Math.sin(t * 0.11) * 0.04, EYE[1]);
     camera.lookAt(-1.6 + Math.sin(t * 0.05) * 0.8, -1.9, -22);
     U.uFront.value = -1e4;
-    draw(setLight(light));
+    draw(setLight(U, sky, light));
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

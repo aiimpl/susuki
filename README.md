@@ -18,21 +18,27 @@ Nothing is pre-rendered and there are no image files: the grass, the water, the 
 | Your hand | A top-down trample map (a ping-pong render target): the drag pushes stalks away from its path, and they rise again over a few seconds |
 | River | The scene is drawn a second time, mirrored in the water plane, into a texture. The surface samples it through normals from noise drifting downstream, with Fresnel, glitter where the Sun or the Moon reflects, and ripples from a damped wave equation solved on the GPU and carried by the current |
 | Sky | A gradient with the glow around the light, thin clouds, the Moon's disc and stars. The same colours are used for the haze, so distant plumes fade into the sky |
-| Post | HDR, bloom, ACES tone mapping, vignette and grain |
+| Life | Red dragonflies (aka-tombo) at golden hour: they hang still, then dart; their wings are a fan through the stroke, so they read as a blur. Fluff from the plumes floats down the river |
+| Lens | The scene is drawn into a 4x MSAA half-float target whose depth is kept as a texture. Depth of field gathers over a golden-angle disc; light shafts smear the bright sky near the Sun or the Moon toward it (GPU Gems 3, ch. 13) |
+| Post | Bloom, ACES tone mapping, a little chromatic aberration at the edges, vignette and grain |
 
 - `web/src/glsl.js`: shared GLSL (the land and the river, wind, sky, haze, foliage light)
 - `web/src/world.js`: the same land in JS, where the clumps grow
 - `web/src/susuki.js`: leaves and plumes
 - `web/src/water.js`: the river surface, ripples, the trample map, drifting seeds
 - `web/src/land.js`: ground, distant hills, sky
-- `web/src/main.js`: renderer, reflection pass, light keys, the page
-- `web/src/film.js`: the 15-second video (`?film`)
+- `web/src/critters.js`: dragonflies
+- `web/src/light.js`: the light keys (golden hour, afterglow, moonlight) and the blend between them
+- `web/src/post.js`: depth of field, light shafts, bloom, tone mapping
+- `web/src/main.js`: renderer, reflection pass, the page
+- `web/src/film.js`, `web/src/film_en.js`: the two 15-second videos (`?film`, `?film=en`)
 - `tools/`: frames for the video (`render.py`), the mp4 (`encode.sh`), a page check at desktop and phone size (`check_page.py`)
 
 ```sh
 make serve          # http://127.0.0.1:8811/
 make setup          # Python + Playwright for the video and the check
 make film video     # build/susuki.mp4 (1080x1350, 60 fps)
+make film-en        # the second video, drawn at 3x and scaled down: build/susuki_en.mp4
 make check
 ```
 

@@ -1,5 +1,6 @@
 """Record the film: open the page with ?render, step it with __renderAt(frame, fps) and save each frame.
 The page is laid out at 540 x 675 CSS px and drawn at 2x, so frames are 1080 x 1350 (4:5).
+SCALE=3 draws at 3x (1620 x 2025) for supersampling; encode.sh scales it down. FILM_Q adds to the query (e.g. &v=en).
   python tools/render.py <out dir> [first last fps] [--lang ja]   all frames (last -1 = to the end); existing frames are kept
   python tools/render.py <out dir> --at 1.5 9 20 [--lang ja]      stills at those seconds (named s<sec>.png)
 """
@@ -12,6 +13,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
+SCALE = int(os.environ.get("SCALE", "2"))
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web")
 
 
@@ -37,10 +39,10 @@ def main():
     port = serve()
     with sync_playwright() as p:
         b = p.chromium.launch(channel="chrome", headless=False, args=["--window-position=-3400,0", "--ignore-gpu-blocklist"])
-        pg = b.new_page(viewport={"width": 540, "height": 675}, device_scale_factor=2)
+        pg = b.new_page(viewport={"width": 540, "height": 675}, device_scale_factor=SCALE)
         pg.on("pageerror", lambda e: print("[pageerror]", e))
         pg.on("console", lambda m: print("[console]", m.text) if m.type in ("error", "warning") else None)
-        pg.goto(f"http://127.0.0.1:{port}/index.html?render&rs=2{lang}")
+        pg.goto(f"http://127.0.0.1:{port}/index.html?render&rs={SCALE}{lang}{os.environ.get('FILM_Q', '')}")
         pg.wait_for_function("window.__ready === true", timeout=60000)
         pg.evaluate("document.fonts.ready")
         fps = 60

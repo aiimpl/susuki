@@ -64,9 +64,9 @@ void main(){
 export class Touch {
   constructor(renderer, uniforms) {
     this.box = new THREE.Vector4(-12, -22, 24, 24);            // trample map over the near field
-    this.rbox = new THREE.Vector4(-6, -24, 22, 22);            // ripple map over the near river
+    this.rbox = new THREE.Vector4(-7, -21, 18, 18);            // ripple map over the near river (2.8 cm cells)
     this.tr = new PingPong(renderer, 256, TRAMPLE_FS, { uBox: { value: this.box }, uSeg: { value: new THREE.Vector4() }, uR: { value: 0.85 }, uOn: { value: 0 }, uDecay: { value: 1 } });
-    this.rp = new PingPong(renderer, 384, RIPPLE_FS, { uFlowUV: { value: new THREE.Vector2() }, uC2: { value: 0.22 }, uDamp: { value: 0.988 }, uDrop: { value: new THREE.Vector4() } });
+    this.rp = new PingPong(renderer, 640, RIPPLE_FS, { uFlowUV: { value: new THREE.Vector2() }, uC2: { value: 0.3 }, uDamp: { value: 0.993 }, uDrop: { value: new THREE.Vector4() } });
     uniforms.uTrample.value = this.tr.tex;
     uniforms.uTrampleBox.value = this.box;
     this.u = uniforms;
@@ -86,15 +86,17 @@ export class Touch {
     } else tu.uOn.value = 0;
     this.tr.step();
     const ru = this.rp.mat.uniforms;
-    ru.uFlowUV.value.set(this.flow.x * dt / this.rbox.z, this.flow.y * dt / this.rbox.w);
+    ru.uFlowUV.value.set(this.flow.x * dt / 2 / this.rbox.z, this.flow.y * dt / 2 / this.rbox.w);
     ru.uDrop.value.set(0, 0, 0, 0);
     const drop = hand && hand.on && hand.water ? hand : this.drip;
     if (drop) {
       const moved = this.last ? Math.hypot(drop.x - this.last.x, drop.z - this.last.z) : 0;
-      const k = drop === hand ? Math.min(0.022, 0.008 + moved * 0.12) * hand.on : drop.s;
-      ru.uDrop.value.set((drop.x - this.rbox.x) / this.rbox.z, (drop.z - this.rbox.y) / this.rbox.w, 0.08 / this.rbox.z, k);
+      const k = drop === hand ? Math.min(0.08, 0.03 + moved * 0.5) * hand.on : drop.s * 4.;
+      ru.uDrop.value.set((drop.x - this.rbox.x) / this.rbox.z, (drop.z - this.rbox.y) / this.rbox.w, 0.05 / this.rbox.z, k);
     }
     this.drip = null;
+    this.rp.step();
+    ru.uDrop.value.set(0, 0, 0, 0);
     this.rp.step();
     this.u.uTrample.value = this.tr.tex;
     this.last = hand ? { ...hand } : null;
@@ -142,9 +144,9 @@ export function makeWater(uniforms, touch, eye) {
         // ripples from the hand
         vec2 ruv = (vW.xz - uRipBox.xy) / uRipBox.zw;
         if (ruv.x > 0. && ruv.y > 0. && ruv.x < 1. && ruv.y < 1.) {
-          float rt = 1. / 384.;
+          float rt = 1. / 640.;
           float r0 = texture2D(uRip, ruv).x;
-          grad += vec2(texture2D(uRip, ruv + vec2(rt, 0.)).x - r0, texture2D(uRip, ruv + vec2(0., rt)).x - r0) * 22.;
+          grad += vec2(texture2D(uRip, ruv + vec2(rt, 0.)).x - r0, texture2D(uRip, ruv + vec2(0., rt)).x - r0) * 40.;
         }
         vec3 N = normalize(vec3(-grad.x, 1., -grad.y));
         float ndv = max(dot(N, V), 0.);
@@ -205,6 +207,44 @@ export function makeSeeds(uniforms, eye, n = 1400) {
         vec2 c = gl_PointCoord - 0.5; float r = length(c);
         float a = smoothstep(0.5, 0.0, r);
         gl_FragColor = vec4(uSunCol * vec3(1.0, 0.92, 0.8) * a * vA * uAmount * 0.6 + uGlowCol * a * vA * 0.05 * uAmount, 1.);
+      }`,
+  });
+  const m = new THREE.Points(g, mat);
+  m.frustumCulled = false;
+  return m;
+}
+
+// fluff from the plumes floating down the river, catching the light
+export function makeFloaters(uniforms, n = 700) {
+  const pos = new Float32Array(n * 3);
+  let s = 11;
+  const R = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  for (let i = 0; i < n; i++) pos.set([R(), R(), R()], i * 3);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { ...uniforms, uPx: { value: 1000 }, uFlow: { value: 0.45 } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: COMMON + /* glsl */ `
+      uniform float uPx; uniform float uFlow; varying float vA;
+      void main(){
+        float L = 36.;
+        float z = -32. + mod(position.z * L + uTime * uFlow * (0.8 + 0.4 * position.y), L);
+        float w = riverW(z) - 0.5;
+        vec3 p = vec3(riverX(z) + (position.x - 0.5) * 2. * w + sin(uTime * 0.3 + position.y * 20.) * 0.15, 0.004, z);
+        vec4 mv = viewMatrix * vec4(p, 1.);
+        float d = -mv.z;
+        gl_PointSize = clamp(uPx * 0.0035 * (0.5 + position.y) / d, 1., 10.);
+        vec3 V = normalize(uCamPos - p);
+        float glint = pow(max(dot(reflect(-V, vec3(0., 1., 0.)), uSunDir), 0.), 30.);
+        vA = (0.12 + glint * 2.5 + pow(max(dot(-V, uSunDir), 0.), 6.) * 0.6) * smoothstep(1.0, 3.0, d) * (1. - smoothstep(20., 30., d));
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: COMMON + /* glsl */ `
+      varying float vA;
+      void main(){
+        float r = length(gl_PointCoord - 0.5);
+        gl_FragColor = vec4((uSunCol * 0.5 + uAmbTop) * vec3(1., 0.95, 0.88) * smoothstep(0.5, 0.1, r) * vA, 1.);
       }`,
   });
   const m = new THREE.Points(g, mat);
